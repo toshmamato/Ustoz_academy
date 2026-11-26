@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowUpRight,
@@ -13,6 +13,8 @@ import {
   LockKeyhole,
 } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+
+type DynamicItem = { id: string; title: string; description: string; };
 
 type PageInfo = {
   title: string;
@@ -168,6 +170,92 @@ const pages: Record<string, PageInfo> = {
 export default function FeaturePage({ pageKey }: { pageKey: string }) {
   const page = pages[pageKey];
   const [activeAction, setActiveAction] = useState("");
+  const [dynamicItems, setDynamicItems] = useState<DynamicItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState("");
+
+  useEffect(() => {
+    if (pageKey !== "kurslar" && pageKey !== "darsliklar") {
+      setDynamicItems([]);
+      setApiError("");
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadData() {
+      try {
+        setLoading(true);
+        setApiError("");
+
+        const endpoint = pageKey === "kurslar"
+          ? "/api/courses"
+          : "/api/textbooks";
+
+        const response = await fetch(endpoint);
+
+        if (!response.ok) {
+          throw new Error("Malumotlarni yuklashda xatolik");
+        }
+
+        const data = await response.json();
+
+        if (!data.success) {
+          throw new Error(data.message || "Malumot topilmadi");
+        }
+
+        const list = pageKey === "kurslar"
+          ? data.courses
+          : data.textbooks;
+
+        const formattedItems: DynamicItem[] = (list || []).map((item: any) => {
+          if (pageKey === "kurslar") {
+            const modules = item.modules || [];
+            const lessonCount = modules.reduce(
+              (total: number, module: any) =>
+                total + (module.lessons?.length || 0),
+              0
+            );
+
+            return {
+              id: item.id,
+              title: item.title,
+              description: `${modules.length} ta modul ? ${lessonCount} ta dars ? ${item.isPremium ? "Premium" : "Bepul"}`,
+            };
+          }
+
+          return {
+            id: item.id,
+            title: item.title,
+            description: `${item.lessons?.length || 0} ta darslik materiali`,
+          };
+        });
+
+        if (!cancelled) setDynamicItems(formattedItems);
+      } catch (error) {
+        if (!cancelled) {
+          setApiError(error instanceof Error ? error.message : "Noma'lum xatolik");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pageKey]);
+
+  const displayItems =
+    pageKey === "kurslar" || pageKey === "darsliklar"
+      ? dynamicItems
+      : page.items.map((item, index) => ({
+          id: String(index),
+          title: item,
+          description: "Ushbu yonalish boyicha materiallar va amaliy imkoniyatlar.",
+        }));
 
   if (!page) {
     return (
@@ -239,11 +327,29 @@ export default function FeaturePage({ pageKey }: { pageKey: string }) {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {page.items.map((item, index) => (
+            {loading && (
+              <p className="col-span-full text-sm text-zinc-400">
+                Malumotlar yuklanmoqda...
+              </p>
+            )}
+
+            {apiError && (
+              <p className="col-span-full rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+                {apiError}
+              </p>
+            )}
+
+            {!loading && !apiError && displayItems.length === 0 && (
+              <p className="col-span-full text-sm text-zinc-400">
+                Hozircha malumot mavjud emas.
+              </p>
+            )}
+
+            {displayItems.map((item, index) => (
               <button
-                key={item}
+                key={item.id}
                 type="button"
-                onClick={() => setActiveAction(item)}
+                onClick={() => setActiveAction(item.title)}
                 className="group rounded-2xl border border-white/[0.07] bg-[#11111a] p-5 text-left transition hover:-translate-y-1 hover:border-violet-400/25 hover:bg-[#151522]"
               >
                 <div className="flex items-center justify-between">
@@ -252,10 +358,8 @@ export default function FeaturePage({ pageKey }: { pageKey: string }) {
                   </div>
                   <ArrowUpRight size={18} className="text-zinc-600 transition group-hover:text-violet-300" />
                 </div>
-                <h3 className="mt-5 font-bold text-white">{item}</h3>
-                <p className="mt-2 text-xs leading-6 text-zinc-500">
-                  Ushbu yo‘nalish bo‘yicha materiallar va amaliy imkoniyatlar.
-                </p>
+                <h3 className="mt-5 font-bold text-white">{item.title}</h3>
+                <p className="mt-2 text-xs leading-6 text-zinc-500">{item.description}</p>
                 <div className="mt-5 flex items-center gap-2 text-xs font-semibold text-violet-300">
                   <Play size={13} />
                   Ochish
